@@ -1,0 +1,418 @@
+*&---------------------------------------------------------------------*
+*& Report 
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT z_zstazwk_r_zada3.
+
+INFOTYPES: 0002, 0558, 9650, 0001, 0000.
+
+
+NODES: person, group, peras.
+
+
+TABLES: pernr, t528t, t528b, p0000_af, phifi, prel, p1000.
+
+DATA: a TYPE i VALUE 1.
+
+
+DATA:
+  datapoko  TYPE STANDARD TABLE OF phifi,
+  opisstan  TYPE STANDARD TABLE OF t528t,
+  opisstan2 LIKE LINE OF opisstan,
+  info1     TYPE TABLE OF p0000,
+  info2     TYPE TABLE OF p0001,
+  datapoko2 LIKE LINE OF datapoko,
+  tab       TYPE STANDARD TABLE OF p9650,
+  hiredate  TYPE phifi-begda.
+
+TYPE-POOLS: slis, abap.
+
+TYPES ty_lgart TYPE RANGE OF lgart.
+
+DATA: r_lgart      TYPE ty_lgart,
+
+      r_lgart_line TYPE LINE OF ty_lgart.
+
+
+CLASS lcl_report DEFINITION.
+
+
+  PUBLIC SECTION.
+
+
+    TYPES: BEGIN OF ty_pos_line,
+             vorna    LIKE p0002-vorna,
+             nachn    LIKE p0002-nachn,
+             plans    LIKE p0001-plans,
+             plstx    LIKE t528t-plstx,
+             hiredate LIKE phifi-begda,
+             firedate LIKE phifi-endda,
+
+             rodzj    LIKE p9650-rodzj,
+             kolor    LIKE p9650-kolor,
+             cenau    LIKE p9650-cenau,
+             ppopi    LIKE p9650-ppopi,
+             opisp    LIKE p9650-opisp,
+
+           END OF ty_pos_line.
+
+    DATA: gt_pos_lines TYPE STANDARD TABLE OF ty_pos_line,
+
+          gs_pos_line  TYPE ty_pos_line.
+
+
+    DATA: gt_t512t TYPE STANDARD TABLE OF t512t.
+
+    METHODS:
+
+      exclude_selection_screen,
+      initialization,
+      global_settings,
+      get_data,
+      final_processing,
+      generate_output.
+
+
+  PROTECTED SECTION.
+
+  PRIVATE SECTION.
+
+* ALV reference
+
+    DATA: gr_table TYPE REF TO cl_salv_table.
+
+**> Deklaracje dla obiektu ustawień układu(Layout Settings)
+
+    DATA: gr_layout     TYPE REF TO cl_salv_layout,
+
+          gr_layout_key TYPE salv_s_layout_key.
+
+
+    DATA:
+
+      lt_pa0014 TYPE STANDARD TABLE OF pa0014,
+      lt_pa0413 TYPE STANDARD TABLE OF pa0413.
+
+    METHODS:
+
+      prepare_report,
+      set_report_header,
+      adjust_columns,
+      display_data,
+      status_bar,
+      get_pernr_data.
+
+ENDCLASS. "lcl_report DEFINITION
+
+DATA: lo_report TYPE REF TO lcl_report.
+
+LOAD-OF-PROGRAM.
+
+  CREATE OBJECT lo_report.
+
+AT SELECTION-SCREEN OUTPUT.
+
+  lo_report->exclude_selection_screen( ).
+
+INITIALIZATION.
+
+  lo_report->initialization( ).
+
+START-OF-SELECTION.
+
+  lo_report->global_settings( ).
+
+
+GET peras.
+
+  lo_report->get_data( ).
+
+end-of-selection.
+
+  lo_report->final_processing( ).
+  lo_report->generate_output( ).
+
+
+CLASS lcl_report IMPLEMENTATION.
+
+
+  METHOD get_pernr_data.
+
+    "loop pobierasz ende a kod dopiero od drugiej iteracji powinien isc ifa sytabix>1 to idzie w kolejny kod porownujesz stara ende do nwoej beyd jesli roznica jednego dnia daje dwie zmienne
+
+    CALL FUNCTION 'RP_HIRE_FIRE' "
+      EXPORTING
+        beg       = p0000-begda
+        end       = p0000-endda
+      IMPORTING
+        fire_date = phifi-endda
+        hire_date = phifi-begda
+      TABLES
+        pphifi    = datapoko
+        pp0000    = p0000
+        pp0001    = p0001.
+    IF sy-subrc EQ 0.
+      "All OK
+    ENDIF.
+
+    LOOP AT datapoko INTO datapoko2.
+      READ TABLE datapoko INTO datapoko2 WITH KEY massn = 'A6'.
+
+
+      READ TABLE datapoko INTO datapoko2 INDEX a.
+      gs_pos_line-hiredate = datapoko2-begda.
+      gs_pos_line-firedate = datapoko2-endda.
+      a = a + 1.
+
+      rp_provide_from_last p0001 space pn-begda pn-endda.
+
+      MOVE-CORRESPONDING p0001 TO gs_pos_line.
+
+      rp_provide_from_last p9650 space pn-begda pn-endda.
+
+      MOVE-CORRESPONDING p9650 TO gs_pos_line.
+
+      rp_provide_from_last p0002 space pn-begda pn-endda.
+
+      MOVE-CORRESPONDING p0002 TO gs_pos_line.
+
+      SELECT SINGLE plstx
+      FROM t528t
+      INTO opisstan2-plstx
+      WHERE
+      otype = 'S' AND plans = gs_pos_line-plans.
+
+      gs_pos_line-plstx = opisstan2-plstx.
+
+      IF gs_pos_line IS NOT INITIAL.
+
+        APPEND gs_pos_line TO gt_pos_lines.
+
+      ENDIF.
+
+      CLEAR gs_pos_line.
+
+    ENDLOOP.
+
+  ENDMETHOD. "get_pernr_data
+
+  METHOD get_data.
+
+    me->status_bar( ).
+    me->get_pernr_data( ).
+
+  ENDMETHOD. "get_data
+
+  METHOD final_processing.
+
+*Dodatkowe przetwarzanie
+
+  ENDMETHOD. "final_processing
+
+  METHOD prepare_report.
+
+
+    DATA: lr_functions TYPE REF TO cl_salv_functions_list,
+          lr_display   TYPE REF TO cl_salv_display_settings.
+
+
+**> Utworzenie obiektu listy ALV
+
+    TRY.
+
+        cl_salv_table=>factory(
+        EXPORTING list_display = if_salv_c_bool_sap=>false
+        IMPORTING r_salv_table = gr_table
+        CHANGING t_table = gt_pos_lines ).
+
+      CATCH cx_salv_msg .
+
+    ENDTRY.
+
+
+**> Ustawienie układu wyświetlania ALV (wariant)
+
+    gr_layout_key-report = sy-repid.
+    gr_layout = gr_table->get_layout( ).
+    gr_layout->set_key( gr_layout_key ).
+    gr_layout->set_save_restriction( if_salv_c_layout=>restrict_none ).
+    gr_layout->set_default( if_salv_c_bool_sap=>true ).
+
+**> Aktywacja wszystkich funkcji ALV (przycisków)
+
+    lr_functions = gr_table->get_functions( ).
+    lr_functions->set_all( if_salv_c_bool_sap=>true ).
+
+**> Globalne ustawienia wyświetlania ALV
+
+    lr_display = gr_table->get_display_settings( ).
+    lr_display->set_striped_pattern( cl_salv_display_settings=>true ).
+*
+
+  ENDMETHOD. "prepare_report
+
+  METHOD set_report_header.
+
+    DATA : lr_grid  TYPE REF TO cl_salv_form_layout_grid,
+           lr_text  TYPE REF TO cl_salv_form_text,
+           lr_label TYPE REF TO cl_salv_form_label,
+           lr_flow  TYPE REF TO cl_salv_form_layout_flow,
+           lr_head  TYPE string,
+           lv_text  TYPE text70.
+
+
+    CREATE OBJECT lr_grid.
+
+    CONCATENATE 'Raport za rok -' pn-begda(4) INTO lv_text SEPARATED BY space.
+
+    lr_grid->add_row( ).
+    lr_label = lr_grid->create_label( row = 1
+
+   column = 1
+
+    text = lv_text ).
+
+
+    lr_flow = lr_grid->create_flow( row = 2 column = 1 ).
+    lr_flow->create_label( text = 'Wykonał:' ).
+    lr_flow = lr_grid->create_flow( row = 2 column = 2 ).
+    lr_flow->create_text( text = sy-uname ).
+
+
+    lr_flow = lr_grid->create_flow( row = 3 column = 1 ).
+    lr_flow->create_label( text = 'Data:' ).
+    lr_flow = lr_grid->create_flow( row = 3 column = 2 ).
+    lr_flow->create_text( text = sy-datum ).
+
+    gr_table->set_top_of_list( lr_grid ).
+
+
+  ENDMETHOD. "set_report_header
+
+
+  METHOD adjust_columns.
+
+**> Deklaracja obiektu dla kolumn ALV (Columns)
+
+    DATA : lr_columns    TYPE REF TO cl_salv_columns_table,
+           lr_column     TYPE REF TO cl_salv_column_table,
+           lt_column_ref TYPE salv_t_column_ref,
+           ls_column_ref TYPE salv_s_column_ref.
+
+**> Kolorowanie kolumn
+
+    DATA : lt_colo TYPE STANDARD TABLE OF lvc_s_colo,
+           ls_colo TYPE lvc_s_colo.
+
+
+**> Struktury dla kolorów kolumn
+
+    DATA : lt_color TYPE lvc_t_scol,
+           ls_color TYPE lvc_s_scol.
+
+    DATA: color TYPE lvc_s_colo.
+
+    IF gr_table IS NOT INITIAL.
+      lr_columns = gr_table->get_columns( ).
+
+      TRY.
+
+          lr_column ?= lr_columns->get_column( 'PERNR' ).
+          color-col = '5'.
+          color-int = '1'.
+          color-inv = '1'.
+          lr_column->set_color( color ).
+
+          lr_column ?= lr_columns->get_column( 'VORNA' ).
+          lr_column->set_short_text( 'Nazwisko').
+          lr_column->set_medium_text( 'Nazwisko').
+          lr_column->set_long_text( 'Nazwisko').
+
+          lr_column ?= lr_columns->get_column( 'PROPO' ).
+          lr_column->set_cell_type( if_salv_c_cell_type=>checkbox ) .
+          lr_columns->set_optimize( if_salv_c_bool_sap=>true ).
+          lr_columns->set_key_fixation( if_salv_c_bool_sap=>true ).
+
+        CATCH cx_salv_not_found.
+
+      ENDTRY.
+
+    ENDIF.
+
+  ENDMETHOD. "adjust_columns
+
+  METHOD display_data.
+
+    gr_table->display( ).
+
+  ENDMETHOD. "generate_output
+
+  METHOD generate_output.
+
+    me->prepare_report( ).
+    me->set_report_header( ).
+    me->adjust_columns( ).
+    me->display_data( ).
+
+
+  ENDMETHOD."generate_output
+
+
+  METHOD initialization.
+
+
+**> Ustawienie domyślnych wartości na ekranie selekcji
+
+    pnptimed = 'Y'.
+
+  ENDMETHOD. "inicialization
+
+  METHOD exclude_selection_screen.
+
+  ENDMETHOD."exclude_selection_screen
+
+  METHOD status_bar.
+
+    DATA: lv_message(100) TYPE c.
+
+    CONCATENATE 'Przetwarzanie pracowników.' peras-pernr INTO lv_message
+
+    SEPARATED BY space.
+
+    CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+      EXPORTING
+        percentage = 100
+        text       = lv_message
+      EXCEPTIONS
+        OTHERS     = 1.
+
+  ENDMETHOD. "status_bar
+
+  METHOD global_settings.
+
+    r_lgart_line-option = 'EQ'.
+    r_lgart_line-sign = 'I'.
+    r_lgart_line-low = '/405'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C1'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C2'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C3'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C4'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C5'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C6'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C7'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C8'. APPEND r_lgart_line TO r_lgart.
+    r_lgart_line-low = '/4C9'. APPEND r_lgart_line TO r_lgart.
+
+    CLEAR r_lgart_line.
+
+    SELECT * FROM t512t INTO TABLE gt_t512t WHERE sprsl = sy-langu
+
+    AND molga = '46'
+
+   AND lgart IN r_lgart.
+
+  ENDMETHOD. "global_settings
+
+
+ENDCLASS. "lcl_report IMPLEMENTATION
